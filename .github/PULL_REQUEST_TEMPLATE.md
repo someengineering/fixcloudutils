@@ -13,4 +13,4 @@
 
 # Code of Conduct
 
-By submitting this pull request, I agree to follow the [code of conduct](https://cloud2sql.com/code-of-conduct).
+By submitting this pull request, I agree to follow the [code of conduct](https://some.engineering/code-of-conduct).

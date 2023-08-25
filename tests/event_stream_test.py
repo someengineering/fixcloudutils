@@ -1,4 +1,5 @@
 import asyncio
+import os
 from collections import defaultdict
 from functools import partial
 from typing import List, Dict
@@ -33,6 +34,7 @@ class ExampleData:
 
 
 @pytest.mark.asyncio
+@pytest.mark.skipif(os.environ.get("REDIS_RUNNING") is None, reason="Redis is not running")
 async def test_stream(redis: Redis) -> None:
     message_counter: Dict[str, int] = defaultdict(int)
 
@@ -96,6 +98,7 @@ async def test_stream(redis: Redis) -> None:
 
 
 @pytest.mark.asyncio
+@pytest.mark.skipif(os.environ.get("REDIS_RUNNING") is None, reason="Redis is not running")
 async def test_failure(redis: Redis) -> None:
     counter = 0
 

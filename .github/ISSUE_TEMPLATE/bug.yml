@@ -17,14 +17,14 @@ body:
     id: version
     attributes:
       label: Version
-      description: What version of Cloud2SQL are you running?
+      description: What version do you use?
     validations:
       required: true
   - type: input
     id: environment
     attributes:
       label: Environment
-      description:
+      description: What environment do you use?
     validations:
       required: false
   - type: textarea
@@ -43,7 +43,7 @@ body:
     attributes:
       label: Logs
       description: Please copy and paste any relevant log output. (This will be automatically formatted into code, so no need for backticks.)
-      render: shell
+      render: Shell
   - type: textarea
     id: additional-context
     attributes:
@@ -52,4 +52,4 @@ body:
   - type: markdown
     attributes:
       value: |
-        By submitting this bug report, I agree to follow the [code of conduct](https://cloud2sql.com/code-of-conduct).
+        By submitting this bug report, I agree to follow the [code of conduct](https://some.engineering/code-of-conduct).

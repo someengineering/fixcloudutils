@@ -4,7 +4,7 @@ import logging
 import uuid
 from asyncio import Task
 from datetime import datetime
-from typing import Union, Sequence, Any, Mapping, Optional, Callable, Awaitable
+from typing import Any, Optional, Callable, Awaitable
 
 from redis.asyncio import Redis
 from redis.asyncio.client import PubSub
@@ -68,14 +68,7 @@ class RedisPubSubPublisher(Service):
         self.channel = channel
         self.publisher_name = publisher_name
 
-    async def publish(
-        self,
-        kind: str,
-        **params: Union[str, int, bool, None, Sequence[Any], Mapping[str, Any]],
-    ) -> None:
-        await self.publish_json(kind, params)
-
-    async def publish_json(self, kind: str, message: Json) -> None:
+    async def publish(self, kind: str, message: Json, channel: Optional[str] = None) -> None:
         to_send = {
             "id": str(uuid.uuid1()),
             "at": utc_str(),
@@ -83,4 +76,4 @@ class RedisPubSubPublisher(Service):
             "kind": kind,
             "data": message,
         }
-        await self.redis.publish(self.channel, json.dumps(to_send))
+        await self.redis.publish(channel or self.channel, json.dumps(to_send))

@@ -16,8 +16,6 @@ from typing import (
     Awaitable,
     Optional,
     TypeVar,
-    Sequence,
-    Mapping,
     Dict,
 )
 
@@ -184,14 +182,7 @@ class RedisStreamPublisher(Service):
             timedelta(minutes=1),
         )
 
-    async def publish(
-        self,
-        kind: str,
-        **params: Union[str, int, bool, None, Sequence[Any], Mapping[str, Any]],
-    ) -> None:
-        await self.publish_json(kind, params)
-
-    async def publish_json(self, kind: str, message: Json) -> None:
+    async def publish(self, kind: str, message: Json) -> None:
         to_send = {
             "id": str(uuid.uuid1()),
             "at": utc_str(),

@@ -180,6 +180,7 @@ class RedisStreamPublisher(Service):
             "clean_processed_messages",
             self.cleanup_processed_messages,
             timedelta(minutes=1),
+            first_run=timedelta(milliseconds=10),
         )
 
     async def publish(self, kind: str, message: Json) -> None:

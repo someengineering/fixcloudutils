@@ -2,35 +2,15 @@ import asyncio
 import os
 from collections import defaultdict
 from functools import partial
-from typing import List, Dict
+from typing import Dict
 
 import pytest
-from attrs import define
 from cattrs import unstructure, structure
-from pytest import fixture
 from redis.asyncio import Redis
-from redis.asyncio.retry import Retry
-from redis.backoff import ExponentialBackoff
 
+from conftest import ExampleData
 from fixcloudutils.redis.event_stream import RedisStreamListener, RedisStreamPublisher, Backoff
 from fixcloudutils.types import Json
-
-
-@fixture
-def redis() -> Redis:
-    return Redis(
-        host="localhost",
-        port=6379,
-        decode_responses=True,
-        retry=Retry(ExponentialBackoff(), 10),  # type: ignore
-    )
-
-
-@define
-class ExampleData:
-    foo: int
-    bar: str
-    bla: List[int]
 
 
 @pytest.mark.asyncio

@@ -7,7 +7,7 @@ import sys
 import uuid
 from asyncio import Task, CancelledError
 from contextlib import suppress
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timedelta
 from functools import partial
 from typing import (
     Callable,
@@ -26,9 +26,9 @@ from redis.asyncio import Redis
 
 from fixcloudutils.asyncio.periodic import Periodic
 from fixcloudutils.service import Service
+from fixcloudutils.util import utc_str
 
 log = logging.getLogger("collect.coordinator")
-UTC_Date_Format = "%Y-%m-%dT%H:%M:%SZ"
 T = TypeVar("T")
 Json = Dict[str, Any]
 CommitTimeRE = re.compile(r"(\d{13})-.*")
@@ -192,10 +192,9 @@ class RedisStreamPublisher(Service):
         await self.publish_json(kind, params)
 
     async def publish_json(self, kind: str, message: Json) -> None:
-        now_str = datetime.now(timezone.utc).strftime(UTC_Date_Format)
         to_send = {
             "id": str(uuid.uuid1()),
-            "at": now_str,
+            "at": utc_str(),
             "publisher": self.publisher_name,
             "kind": kind,
             "data": json.dumps(message),

@@ -39,7 +39,7 @@ async def test_stream(redis: Redis) -> None:
     # publish 10 messages
     publisher = RedisStreamPublisher(redis, "test-stream", "test")
     for i in range(10):
-        await publisher.publish_json("test_data", unstructure(ExampleData(i, "foo", [1, 2, 3])))
+        await publisher.publish("test_data", unstructure(ExampleData(i, "foo", [1, 2, 3])))
 
     # make sure 10 messages are in the stream
     assert (await redis.xlen("test-stream")) == 10
@@ -69,7 +69,7 @@ async def test_stream(redis: Redis) -> None:
     assert (await redis.xlen("test-stream")) == 0
 
     # emit a new message and call cleanup: the message is not cleaned up
-    await publisher.publish_json("test_data", unstructure(ExampleData(42, "foo", [1, 2, 3])))
+    await publisher.publish("test_data", unstructure(ExampleData(42, "foo", [1, 2, 3])))
     await publisher.cleanup_processed_messages()
     assert (await redis.xlen("test-stream")) == 1
 
@@ -93,7 +93,7 @@ async def test_failure(redis: Redis) -> None:
     # a new redis listener started later will receive all messages
     async with RedisStreamListener(redis, "test-stream", "t1", handle_message, backoff=Backoff(0, 0, 5)):
         async with RedisStreamPublisher(redis, "test-stream", "test") as publisher:
-            await publisher.publish_json("test_data", unstructure(ExampleData(1, "foo", [1, 2, 3])))
+            await publisher.publish("test_data", unstructure(ExampleData(1, "foo", [1, 2, 3])))
 
             # expect one in the dlq
             async def expect_dlq() -> None:

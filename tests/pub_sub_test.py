@@ -34,5 +34,5 @@ async def test_pub_sub(redis: Redis) -> None:
         deps.add(f"listener_{a}", RedisPubSubListener(redis, channel, handle_message))
     async with deps:
         for a in range(10):
-            await redis_publisher.publish_json("test", {"foo": "bar", "num": a})
+            await redis_publisher.publish("test", {"foo": "bar", "num": a})
         await asyncio.wait_for(all_messages_arrived(), timeout=2)

@@ -32,6 +32,8 @@ test = [
     "tox",
 ]
 
+[tool.setuptools.package-data]
+fixcloudutils = ["py.typed"]
 
 [build-system]
 requires = ["setuptools>=67.8.0", "wheel>=0.40.0", "build>=0.10.0"]

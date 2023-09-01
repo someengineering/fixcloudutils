@@ -74,7 +74,7 @@ coverage: ## check code coverage quickly with the default Python
 	$(BROWSER) htmlcov/index.html
 
 venv:
-	python3 -m venv venv --prompt "fixbackend"
+	python3 -m venv venv --prompt "fixcloudutils"
 	. ./venv/bin/activate && python3 -m pip install --upgrade pip
 	. ./venv/bin/activate && pip install -e ".[test]"
 	. ./venv/bin/activate && mypy --install-types --non-interactive fixcloudutils tests

@@ -28,7 +28,7 @@ from typing import (
 
 from fixcloudutils.service import Service
 
-log = logging.getLogger("collect.coordinator")
+log = logging.getLogger("fix.periodic")
 
 
 class Periodic(Service):

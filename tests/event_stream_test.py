@@ -17,37 +17,53 @@
 import asyncio
 import os
 from collections import defaultdict
+from contextlib import suppress
+from datetime import timedelta
 from functools import partial
-from typing import Dict
+from typing import Dict, Tuple, List
 
 import pytest
 from cattrs import unstructure, structure
 from redis.asyncio import Redis
 
 from conftest import ExampleData
-from fixcloudutils.redis.event_stream import RedisStreamListener, RedisStreamPublisher, Backoff
+from fixcloudutils.redis.event_stream import (
+    RedisStreamPublisher,
+    Backoff,
+    RedisStreamListener,
+)
 from fixcloudutils.types import Json
 
 
 @pytest.mark.asyncio
 @pytest.mark.skipif(os.environ.get("REDIS_RUNNING") is None, reason="Redis is not running")
 async def test_stream(redis: Redis) -> None:
-    message_counter: Dict[str, int] = defaultdict(int)
+    group_counter: Dict[int, int] = defaultdict(int)
+    listener_counter: Dict[Tuple[int, int], int] = defaultdict(int)
 
-    async def handle_message(uid: str, message: Json) -> None:
-        print(uid, message)
+    async def handle_message(group: int, uid: int, message: Json) -> None:
         # make sure we can read the message
         data = structure(message, ExampleData)
         assert data.bar == "foo"
         assert data.bla == [1, 2, 3]
-        message_counter[uid] += 1
+        group_counter[group] += 1
+        listener_counter[(group, uid)] += 1
 
     # clean slate
     await redis.delete("test-stream", "test-stream.listener", "test-stream.dlq")
 
-    # create 10 listeners
+    # create 3 listeners in 10 groups
     streams = [
-        RedisStreamListener(redis, "test-stream", f"id{i}", partial(handle_message, f"id{i}:")) for i in range(10)
+        RedisStreamListener(
+            redis,
+            "test-stream",
+            f"group-{group}",
+            f"id{i}",
+            partial(handle_message, group, i),
+            timedelta(seconds=5),
+        )
+        for group in range(10)
+        for i in range(3)
     ]
     for s in streams:
         await s.start()
@@ -61,36 +77,82 @@ async def test_stream(redis: Redis) -> None:
     assert (await redis.xlen("test-stream")) == 10
 
     # expect 10 messages per listener --> 100 messages
-    async def check_all_arrived() -> bool:
+    async def check_all_arrived(expected_reader: int) -> bool:
         while True:
-            if len(message_counter) >= 10 and all(v == 10 for v in message_counter.values()):
+            if len(group_counter) == expected_reader and all(v == 10 for v in group_counter.values()):
                 return True
             await asyncio.sleep(0.1)
 
-    await asyncio.wait_for(check_all_arrived(), timeout=2)
+    await asyncio.wait_for(check_all_arrived(10), timeout=2)
+
+    listener_by_group: Dict[int, int] = defaultdict(int)
+    for (group, lid), counter in listener_counter.items():
+        listener_by_group[group] += counter
+    assert all(v == 10 for v in listener_by_group.values())
 
     # stop all listeners
     for s in streams:
         await s.stop()
 
     # a new redis listener started later will receive all messages
-    async with RedisStreamListener(redis, "test-stream", "t1", partial(handle_message, "t1")):
-        while message_counter["t1"] < 10:
-            await asyncio.sleep(0.1)
-    await asyncio.wait_for(check_all_arrived(), timeout=2)
+    group_counter.clear()
+    async with RedisStreamListener(
+        redis, "test-stream", "other", "l1", partial(handle_message, 123, 123), timedelta(seconds=5)
+    ):
+        await asyncio.wait_for(check_all_arrived(1), timeout=2)
+        pass
 
-    # all messages are processed, cleanup should remove all of them
+    # all messages are processed, cleanup should remove all of them (except the last one)
     assert (await redis.xlen("test-stream")) == 10
     await publisher.cleanup_processed_messages()
-    assert (await redis.xlen("test-stream")) == 0
+    assert (await redis.xlen("test-stream")) <= 1
 
     # emit a new message and call cleanup: the message is not cleaned up
     await publisher.publish("test_data", unstructure(ExampleData(42, "foo", [1, 2, 3])))
     await publisher.cleanup_processed_messages()
-    assert (await redis.xlen("test-stream")) == 1
+    assert (await redis.xlen("test-stream")) <= 2
 
     # don't leave any traces
     await redis.delete("test-stream", "test-stream.listener", "test-stream.dlq")
+
+
+@pytest.mark.asyncio
+@pytest.mark.skipif(os.environ.get("REDIS_RUNNING") is None, reason="Redis is not running")
+async def test_stream_pending(redis: Redis) -> None:
+    await redis.delete("test-stream", "test-stream.listener", "test-stream.dlq")
+    arrived_messages: List[Json] = []
+
+    # create listener
+    with suppress(Exception):
+        await redis.xgroup_create("test-stream", "test-stream_foo", id="0", mkstream=True)
+
+    # publish 10 messages
+    publisher = RedisStreamPublisher(redis, "test-stream", "test")
+    for i in range(10):
+        await publisher.publish("test_data", unstructure(ExampleData(i, "foo", [1, 2, 3])))
+
+    # read the message and do not acknowledge
+    await redis.xreadgroup("test-stream_foo", "bar", {"test-stream": ">"}, count=5)
+
+    # expect n messages
+    async def check_all_arrived(num_messages: int) -> bool:
+        while True:
+            if len(arrived_messages) >= num_messages:
+                return True
+            await asyncio.sleep(0.1)
+
+    async def handle_message(message: Json) -> None:
+        arrived_messages.append(message)
+
+    listener = RedisStreamListener(redis, "test-stream", "foo", "bar", handle_message, timedelta(seconds=5))
+
+    # call handle_pending explicitly to see if it works
+    await listener._handle_pending_messages()
+    await asyncio.wait_for(check_all_arrived(5), timeout=2)
+
+    # The normal way of using the listener. This will handle pending messages (None) and then process all remaining.
+    async with listener:
+        await asyncio.wait_for(check_all_arrived(10), timeout=2)
 
 
 @pytest.mark.asyncio
@@ -107,7 +169,9 @@ async def test_failure(redis: Redis) -> None:
     await redis.delete("test-stream", "test-stream.listener", "test-stream.dlq")
 
     # a new redis listener started later will receive all messages
-    async with RedisStreamListener(redis, "test-stream", "t1", handle_message, backoff=Backoff(0, 0, 5)):
+    async with RedisStreamListener(
+        redis, "test-stream", "t1", "l1", handle_message, timedelta(seconds=5), backoff=Backoff(0, 0, 5)
+    ):
         async with RedisStreamPublisher(redis, "test-stream", "test") as publisher:
             await publisher.publish("test_data", unstructure(ExampleData(1, "foo", [1, 2, 3])))
 

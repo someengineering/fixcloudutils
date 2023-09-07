@@ -15,8 +15,9 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 from datetime import datetime, timezone
-from typing import Optional
+from typing import Optional, TypeVar
 
+T = TypeVar("T")
 UTC_Date_Format = "%Y-%m-%dT%H:%M:%SZ"
 
 
@@ -30,3 +31,7 @@ def utc_str(dt: Optional[datetime] = None) -> str:
 
 def parse_utc_str(s: str) -> datetime:
     return datetime.strptime(s, UTC_Date_Format).replace(tzinfo=timezone.utc)
+
+
+def identity(o: T) -> T:
+    return o

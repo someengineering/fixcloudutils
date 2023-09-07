@@ -13,6 +13,7 @@ dependencies = [
     "attrs",
     "cattrs",
     "redis",
+    "python-arango"
 ]
 
 [project.optional-dependencies]

@@ -42,7 +42,7 @@ from redis.asyncio import Redis
 from fixcloudutils.asyncio import stop_running_task
 from fixcloudutils.asyncio.periodic import Periodic
 from fixcloudutils.service import Service
-from fixcloudutils.util import utc_str
+from fixcloudutils.util import utc_str, parse_utc_str, utc
 
 log = logging.getLogger("fix.event_stream")
 T = TypeVar("T")
@@ -82,6 +82,15 @@ class Backoff:
 NoBackoff = Backoff(0, 0, 0)
 
 
+@define(frozen=True, slots=True)
+class MessageContext:
+    id: str
+    kind: str
+    publisher: str
+    sent_at: datetime
+    received_at: datetime
+
+
 class RedisStreamListener(Service):
     """
     Allows processing of messages from a redis stream in a group of readers.
@@ -99,7 +108,7 @@ class RedisStreamListener(Service):
         stream: str,
         group: str,
         listener: str,
-        message_processor: Callable[[Json], Union[Awaitable[Any], Any]],
+        message_processor: Callable[[Json, MessageContext], Union[Awaitable[Any], Any]],
         consider_failed_after: timedelta,
         batch_size: int = 1000,
         stop_on_fail: bool = False,
@@ -168,12 +177,16 @@ class RedisStreamListener(Service):
     async def _handle_single_message(self, message: Json) -> None:
         try:
             if "id" in message and "at" in message and "data" in message:
-                mid = message["id"]
-                at = message["at"]
-                publisher = message["publisher"]
+                context = MessageContext(
+                    id=message["id"],
+                    kind=message["kind"],
+                    publisher=message["publisher"],
+                    sent_at=parse_utc_str(message["at"]),
+                    received_at=utc(),
+                )
                 data = json.loads(message["data"])
-                log.debug(f"Received message {self.listener}: message {mid}, from {publisher}, at {at} data: {data}")
-                await self.backoff.with_backoff(partial(self.message_processor, data))
+                log.debug(f"Received message {self.listener}: message {context} data: {data}")
+                await self.backoff.with_backoff(partial(self.message_processor, data, context))
             else:
                 log.warning(f"Invalid message format: {message}. Ignore.")
         except Exception as e:

@@ -14,7 +14,7 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-from typing import Union, Mapping, Any, Sequence, Dict
+from typing import Union, Mapping, Any, Sequence, Dict, NewType
 
 # Ideally we would be able to define it like this:
 # JsonElement = Union[ Mapping[str, JsonElement], Sequence[JsonElement], str, int, float, bool, None]
@@ -30,3 +30,4 @@ JsonElement = Union[
 ]
 JsonArray = Sequence[JsonElement]
 Json = Dict[str, Any]
+GraphName = NewType("GraphName", str)

@@ -20,7 +20,7 @@ from collections import defaultdict
 from contextlib import suppress
 from datetime import timedelta
 from functools import partial
-from typing import Dict, Tuple, List
+from typing import Dict, Tuple, List, Any
 
 import pytest
 from cattrs import unstructure, structure
@@ -31,6 +31,7 @@ from fixcloudutils.redis.event_stream import (
     RedisStreamPublisher,
     Backoff,
     RedisStreamListener,
+    MessageContext,
 )
 from fixcloudutils.types import Json
 
@@ -41,7 +42,7 @@ async def test_stream(redis: Redis) -> None:
     group_counter: Dict[int, int] = defaultdict(int)
     listener_counter: Dict[Tuple[int, int], int] = defaultdict(int)
 
-    async def handle_message(group: int, uid: int, message: Json) -> None:
+    async def handle_message(group: int, uid: int, message: Json, _: MessageContext) -> None:
         # make sure we can read the message
         data = structure(message, ExampleData)
         assert data.bar == "foo"
@@ -141,7 +142,7 @@ async def test_stream_pending(redis: Redis) -> None:
                 return True
             await asyncio.sleep(0.1)
 
-    async def handle_message(message: Json) -> None:
+    async def handle_message(message: Json, context: Any) -> None:
         arrived_messages.append(message)
 
     listener = RedisStreamListener(redis, "test-stream", "foo", "bar", handle_message, timedelta(seconds=5))
@@ -160,7 +161,7 @@ async def test_stream_pending(redis: Redis) -> None:
 async def test_failure(redis: Redis) -> None:
     counter = 0
 
-    async def handle_message(_: Json) -> None:
+    async def handle_message(message: Json, context: Any) -> None:
         nonlocal counter
         counter += 1
         raise Exception("boom")

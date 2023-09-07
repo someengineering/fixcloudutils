@@ -15,7 +15,9 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 from datetime import datetime, timezone
-from typing import Optional, TypeVar
+from typing import Optional, TypeVar, Union, List, Any
+
+from fixcloudutils.types import JsonElement, Json
 
 T = TypeVar("T")
 UTC_Date_Format = "%Y-%m-%dT%H:%M:%SZ"
@@ -35,3 +37,61 @@ def parse_utc_str(s: str) -> datetime:
 
 def identity(o: T) -> T:
     return o
+
+
+def value_in_path_get(element: JsonElement, path_or_name: Union[List[str], str], if_none: T) -> T:
+    result = value_in_path(element, path_or_name)
+    return result if result is not None and isinstance(result, type(if_none)) else if_none
+
+
+def value_in_path(element: JsonElement, path_or_name: Union[List[str], str]) -> Optional[Any]:
+    path = path_or_name if isinstance(path_or_name, list) else path_or_name.split(".")
+    at = len(path)
+
+    def at_idx(current: JsonElement, idx: int) -> Optional[Any]:
+        if at == idx:
+            return current
+        elif current is None or not isinstance(current, dict) or path[idx] not in current:
+            return None
+        else:
+            return at_idx(current[path[idx]], idx + 1)
+
+    return at_idx(element, 0)
+
+
+def set_value_in_path(element: JsonElement, path_or_name: Union[List[str], str], js: Optional[Json] = None) -> Json:
+    path = path_or_name if isinstance(path_or_name, list) else path_or_name.split(".")
+    at = len(path) - 1
+
+    def at_idx(current: Json, idx: int) -> None:
+        if at == idx:
+            current[path[-1]] = element
+        else:
+            value = current.get(path[idx])
+            if not isinstance(value, dict):
+                value = {}
+                current[path[idx]] = value
+            at_idx(value, idx + 1)
+
+    js = js if js is not None else {}
+    at_idx(js, 0)
+    return js
+
+
+def del_value_in_path(element: JsonElement, path_or_name: Union[List[str], str]) -> JsonElement:
+    path = path_or_name if isinstance(path_or_name, list) else path_or_name.split(".")
+    pl = len(path) - 1
+
+    def at_idx(current: JsonElement, idx: int) -> JsonElement:
+        if current is None or not isinstance(current, dict) or path[idx] not in current:
+            return element
+        elif pl == idx:
+            current.pop(path[-1], None)
+            return element
+        else:
+            result = at_idx(current[path[idx]], idx + 1)
+            if not current[path[idx]]:
+                current[path[idx]] = None
+            return result
+
+    return at_idx(element, 0)

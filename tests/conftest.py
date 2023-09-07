@@ -16,7 +16,7 @@
 
 from typing import List
 
-from arango import ArangoClient
+from arango.client import ArangoClient
 from attr import define
 from pytest import fixture
 from redis.asyncio import Redis

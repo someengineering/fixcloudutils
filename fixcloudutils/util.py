@@ -13,7 +13,7 @@
 #
 # You should have received a copy of the GNU Affero General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
-
+import uuid
 from datetime import datetime, timezone
 from typing import Optional, TypeVar, Union, List, Any
 
@@ -95,3 +95,10 @@ def del_value_in_path(element: JsonElement, path_or_name: Union[List[str], str])
             return result
 
     return at_idx(element, 0)
+
+
+def uuid_str(from_object: Optional[Any] = None) -> str:
+    if from_object:
+        return str(uuid.uuid5(uuid.NAMESPACE_DNS, from_object))
+    else:
+        return str(uuid.uuid1())

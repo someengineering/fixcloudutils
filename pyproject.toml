@@ -1,6 +1,6 @@
 [project]
 name = "fixcloudutils"
-version = "1.5.0"
+version = "1.6.0"
 authors = [{ name = "Some Engineering Inc." }]
 description = "Utilities for fixcloud."
 license = { file = "LICENSE" }
@@ -14,6 +14,8 @@ dependencies = ["attrs", "cattrs"]
 [project.optional-dependencies]
 redis = ["redis"]
 arango = ["python-arango"]
+prometheus = ["prometheus-client"]
+
 test = [
     "black",
     "coverage",

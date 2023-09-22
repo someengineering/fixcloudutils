@@ -17,6 +17,7 @@
 import asyncio
 import json
 import logging
+import re
 import uuid
 from asyncio import Task
 from datetime import datetime
@@ -33,6 +34,7 @@ from fixcloudutils.util import utc_str, parse_utc_str
 # id, at, publisher, kind, data
 MessageHandler = Callable[[str, datetime, str, str, Json], Awaitable[Any]]
 log = logging.getLogger("fixcloudutils.redis.pub_sub")
+redis_wildcard = re.compile(r"(?<!\\)[*?\[]")
 
 
 class RedisPubSubListener(Service):
@@ -61,7 +63,11 @@ class RedisPubSubListener(Service):
                     log.exception(f"Error handling message {msg}: {ex}. Ignore.")
 
         ps = self.redis.pubsub()
-        await ps.psubscribe(self.channel)
+        # If the channel name contains wildcards, we need to use psubscribe
+        if redis_wildcard.search(self.channel) is not None:
+            await ps.psubscribe(self.channel)
+        else:
+            await ps.subscribe(self.channel)
         self.reader = asyncio.create_task(read_messages(ps))
         self.pubsub = ps
 

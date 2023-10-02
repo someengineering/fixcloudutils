@@ -20,14 +20,13 @@
 #  You should have received a copy of the GNU Affero General Public License
 #  along with this program.  If not, see <http://www.gnu.org/licenses/>.
 from logging import StreamHandler, LogRecord
-from typing import Any
 
 from prometheus_client import Counter
 
 LogRecordCounter = Counter("log_record_counter", "Number of logs by severity", ["component", "level"])
 
 
-class PrometheusLoggingCounter(StreamHandler[Any]):
+class PrometheusLoggingCounter(StreamHandler):  # type: ignore
     def __init__(self, component: str) -> None:
         super().__init__()
         self.component = component

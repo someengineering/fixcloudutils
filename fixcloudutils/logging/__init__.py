@@ -22,7 +22,7 @@
 import logging
 import os
 from logging import StreamHandler, basicConfig
-from typing import Optional, List, Any
+from typing import Optional, List
 
 from .json_logger import JsonFormatter
 from .prometheus_counter import PrometheusLoggingCounter
@@ -38,7 +38,7 @@ def setup_logger(
     json_format: bool = True,
     count_logs: bool = True,
     log_format: Optional[str] = None,
-) -> List[StreamHandler[Any]]:
+) -> List[StreamHandler]:  # type: ignore
     log_level = level or logging.INFO
     # override log output via env var
     plain_text = os.environ.get("LOG_TEXT", "false").lower() == "true"

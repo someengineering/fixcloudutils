@@ -45,11 +45,15 @@ class JsonFormatter(Formatter):
         return self.__uses_time
 
     def format(self, record: LogRecord) -> str:
-        record.message = record.getMessage()
-        if self.__uses_time:
-            record.asctime = self.formatTime(record, self.time_format)
+        def prop(name: str) -> str:
+            if name == "asctime":
+                return self.formatTime(record, self.time_format)
+            elif name == "message":
+                return record.getMessage()
+            else:
+                return getattr(record, name, "n/a")
 
-        message_dict = {fmt_key: record.__dict__[fmt_val] for fmt_key, fmt_val in self.fmt_dict.items()}
+        message_dict = {fmt_key: prop(fmt_val) for fmt_key, fmt_val in self.fmt_dict.items()}
         message_dict.update(self.static_values)
         if record.exc_info:
             if not record.exc_text:

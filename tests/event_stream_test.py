@@ -127,6 +127,7 @@ async def test_stream(redis: Redis) -> None:
     # don't leave any traces
     await redis.delete("test-stream", "test-stream.listener", "test-stream.dlq")
 
+
 @pytest.mark.asyncio
 @pytest.mark.skipif(os.environ.get("REDIS_RUNNING") is None, reason="Redis is not running")
 async def test_stream_parallel(redis: Redis) -> None:
@@ -145,13 +146,7 @@ async def test_stream_parallel(redis: Redis) -> None:
 
     # create a single listener
     stream = RedisStreamListener(
-        redis,
-        "test-stream",
-        "group",
-        "id",
-        partial(handle_message, 1, 1),
-        timedelta(seconds=1),
-        parallelism=10
+        redis, "test-stream", "group", "id", partial(handle_message, 1, 1), timedelta(seconds=1), parallelism=10
     )
     await stream.start()
 
@@ -208,13 +203,7 @@ async def test_stream_parallel_backpressure(redis: Redis) -> None:
 
     # create a single listener
     stream = RedisStreamListener(
-        redis,
-        "test-stream",
-        "group",
-        "id",
-        partial(handle_message, 1, 1),
-        timedelta(seconds=1),
-        parallelism=1
+        redis, "test-stream", "group", "id", partial(handle_message, 1, 1), timedelta(seconds=1), parallelism=1
     )
     await stream.start()
 
@@ -253,6 +242,7 @@ async def test_stream_parallel_backpressure(redis: Redis) -> None:
 
     # don't leave any traces
     await redis.delete("test-stream", "test-stream.listener", "test-stream.dlq")
+
 
 @pytest.mark.asyncio
 @pytest.mark.skipif(os.environ.get("REDIS_RUNNING") is None, reason="Redis is not running")

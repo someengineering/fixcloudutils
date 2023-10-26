@@ -126,7 +126,7 @@ class RedisStreamListener(Service):
         batch_size: int = 1000,
         stop_on_fail: bool = False,
         backoff: Optional[Backoff] = Backoff(0.1, 10, 10),
-        parallelism: Optional[int] = None
+        parallelism: Optional[int] = None,
     ) -> None:
         """
         Create a RedisStream client.
@@ -211,7 +211,6 @@ class RedisStreamListener(Service):
         for stream, stream_messages in messages:
             log.debug(f"Handle {len(stream_messages)} messages from stream.")
             for uid, data in stream_messages:
-
                 if len(self._ongoing_tasks) >= max_parallelesm:  # queue is full, wait for a slot to be freed
                     await asyncio.wait(self._ongoing_tasks, return_when=asyncio.FIRST_COMPLETED)
 

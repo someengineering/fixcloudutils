@@ -176,7 +176,7 @@ class RedisStreamListener(Service):
                 else:
                     await self._handle_stream_messages(messages)
             except RuntimeError as r:
-                if r.args[0] == "no running event loop":
+                if len(r.args) > 0 and r.args[0] == "no running event loop":
                     raise r
             except Exception as e:
                 log.error(f"Failed to read from stream {self.stream}: {e}", exc_info=True)

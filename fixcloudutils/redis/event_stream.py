@@ -201,7 +201,7 @@ class RedisStreamListener(Service):
         Handle messages in parallel in unordered fasion. The number of parallel tasks is limited by max_parallelism.
         """
 
-        async def handle_and_ack(msg: Any, message_id: StreamIdT):
+        async def handle_and_ack(msg: Any, message_id: StreamIdT) -> None:
             await self._handle_single_message(msg)
             await self.redis.xack(self.stream, self.group, message_id)
 

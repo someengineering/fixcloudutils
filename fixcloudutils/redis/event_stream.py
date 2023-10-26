@@ -45,10 +45,12 @@ from typing import (
     TypeVar,
     Dict,
     List,
+    Set,
 )
 
 from attrs import define
 from redis.asyncio import Redis
+from redis.typing import StreamIdT
 
 from fixcloudutils.asyncio import stop_running_task
 from fixcloudutils.asyncio.periodic import Periodic
@@ -124,6 +126,7 @@ class RedisStreamListener(Service):
         batch_size: int = 1000,
         stop_on_fail: bool = False,
         backoff: Optional[Backoff] = Backoff(0.1, 10, 10),
+        parallelism: Optional[int] = None
     ) -> None:
         """
         Create a RedisStream client.
@@ -138,6 +141,7 @@ class RedisStreamListener(Service):
         :param batch_size: The number of events to read in one batch.
         :param stop_on_fail: If True, the listener will stop if a failed event is retried too many times.
         :param backoff: The backoff strategy to use when retrying failed events.
+        :param parallelism: If provided, messages will be processed in parallel without order.
         """
         self.redis = redis
         self.stream = stream
@@ -157,6 +161,8 @@ class RedisStreamListener(Service):
             first_run=timedelta(seconds=3),
         )
         self.__readpos = ">"
+        self._ongoing_tasks: Set[Task[Any]] = set()
+        self.parallelism = parallelism
 
     async def _listen(self) -> None:
         while self.__should_run:
@@ -165,8 +171,13 @@ class RedisStreamListener(Service):
                     self.group, self.listener, {self.stream: self.__readpos}, count=self.batch_size, block=1000
                 )
                 self.__readpos = ">"
-
-                await self._handle_stream_messages(messages)
+                if self.parallelism:
+                    await self._handle_stream_messages_parallel(messages, self.parallelism)
+                else:
+                    await self._handle_stream_messages(messages)
+            except RuntimeError as r:
+                if r.args[0] == "no running event loop":
+                    raise r
             except Exception as e:
                 log.error(f"Failed to read from stream {self.stream}: {e}", exc_info=True)
                 if self.stop_on_fail:
@@ -184,6 +195,29 @@ class RedisStreamListener(Service):
             if ids:
                 # acknowledge all processed messages
                 await self.redis.xack(self.stream, self.group, *ids)
+
+    async def _handle_stream_messages_parallel(self, messages: List[Any], max_parallelesm: int) -> None:
+        """
+        Handle messages in parallel in unordered fasion. The number of parallel tasks is limited by max_parallelism.
+        """
+
+        async def handle_and_ack(msg: Any, message_id: StreamIdT):
+            await self._handle_single_message(msg)
+            await self.redis.xack(self.stream, self.group, message_id)
+
+        def task_done_callback(task: Task[Any]) -> None:
+            self._ongoing_tasks.discard(task)
+
+        for stream, stream_messages in messages:
+            log.debug(f"Handle {len(stream_messages)} messages from stream.")
+            for uid, data in stream_messages:
+
+                if len(self._ongoing_tasks) >= max_parallelesm:  # queue is full, wait for a slot to be freed
+                    await asyncio.wait(self._ongoing_tasks, return_when=asyncio.FIRST_COMPLETED)
+
+                task = asyncio.create_task(handle_and_ack(data, uid), name=f"handle_message_{uid}")
+                task.add_done_callback(task_done_callback)
+                self._ongoing_tasks.add(task)
 
     async def _handle_single_message(self, message: Json) -> None:
         try:
@@ -271,6 +305,12 @@ class RedisStreamListener(Service):
         await self.__outdated_messages_task.start()
 
     async def stop(self) -> Any:
+        async def stop_task(task: Task[Any]) -> None:
+            task.cancel()
+            with suppress(asyncio.CancelledError):
+                await task
+
+        await asyncio.gather(*[stop_task(task) for task in self._ongoing_tasks])
         self.__should_run = False
         await self.__outdated_messages_task.stop()
         await stop_running_task(self.__listen_task)

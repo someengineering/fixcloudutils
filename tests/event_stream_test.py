@@ -127,6 +127,132 @@ async def test_stream(redis: Redis) -> None:
     # don't leave any traces
     await redis.delete("test-stream", "test-stream.listener", "test-stream.dlq")
 
+@pytest.mark.asyncio
+@pytest.mark.skipif(os.environ.get("REDIS_RUNNING") is None, reason="Redis is not running")
+async def test_stream_parallel(redis: Redis) -> None:
+    counter: List[int] = [0]
+
+    async def handle_message(group: int, uid: int, message: Json, _: MessageContext) -> None:
+        # make sure we can read the message
+        data = structure(message, ExampleData)
+        assert data.bar == "foo"
+        assert data.bla == [1, 2, 3]
+        await asyncio.sleep(0.5)  # message takes time to be processed
+        counter[0] += 1
+
+    # clean slate
+    await redis.delete("test-stream", "test-stream.listener", "test-stream.dlq")
+
+    # create a single listener
+    stream = RedisStreamListener(
+        redis,
+        "test-stream",
+        "group",
+        "id",
+        partial(handle_message, 1, 1),
+        timedelta(seconds=1),
+        parallelism=10
+    )
+    await stream.start()
+
+    messages_total = 10
+    # publish 10 messages
+    publisher = RedisStreamPublisher(redis, "test-stream", "test")
+    for i in range(messages_total):
+        await publisher.publish("test_data", unstructure(ExampleData(i, "foo", [1, 2, 3])))
+
+    # make sure messages are in the stream
+    assert (await redis.xlen("test-stream")) == messages_total
+
+    # expect 10 messages per listener --> 100 messages
+    async def check_all_arrived(expected_reader: int) -> bool:
+        while True:
+            if counter[0] == expected_reader:
+                return True
+            await asyncio.sleep(0.1)
+
+    # processing must be parallel and we won't hit a timeout error
+    # if the parallelism is not working then the processing will take 5 seconds
+    # and the test will fail
+    await asyncio.wait_for(check_all_arrived(messages_total), timeout=2)
+
+    # messages must be acked and not be processed again
+    await asyncio.sleep(1)
+    assert counter[0] == messages_total
+
+    # no tasks should be running once everything is processed
+    assert len(stream._ongoing_tasks) == 0
+
+    # stop all listeners
+    await stream.stop()
+
+    # don't leave any traces
+    await redis.delete("test-stream", "test-stream.listener", "test-stream.dlq")
+
+
+@pytest.mark.asyncio
+@pytest.mark.skipif(os.environ.get("REDIS_RUNNING") is None, reason="Redis is not running")
+async def test_stream_parallel_backpressure(redis: Redis) -> None:
+    counter: List[int] = [0]
+
+    async def handle_message(group: int, uid: int, message: Json, _: MessageContext) -> None:
+        # make sure we can read the message
+        data = structure(message, ExampleData)
+        assert data.bar == "foo"
+        assert data.bla == [1, 2, 3]
+        await asyncio.sleep(0.15)  # message takes time to be processed
+        counter[0] += 1
+
+    # clean slate
+    await redis.delete("test-stream", "test-stream.listener", "test-stream.dlq")
+
+    # create a single listener
+    stream = RedisStreamListener(
+        redis,
+        "test-stream",
+        "group",
+        "id",
+        partial(handle_message, 1, 1),
+        timedelta(seconds=1),
+        parallelism=1
+    )
+    await stream.start()
+
+    messages_total = 10
+    # publish 10 messages
+    publisher = RedisStreamPublisher(redis, "test-stream", "test")
+    for i in range(messages_total):
+        await publisher.publish("test_data", unstructure(ExampleData(i, "foo", [1, 2, 3])))
+
+    # make sure messages are in the stream
+    assert (await redis.xlen("test-stream")) == messages_total
+
+    # expect 10 messages per listener --> 100 messages
+    async def check_all_arrived(expected_reader: int) -> bool:
+        while True:
+            if counter[0] == expected_reader:
+                return True
+            await asyncio.sleep(0.1)
+
+    # if the parallelism is full we should wait before enqueueing the next message
+    # the total processing time should at least be 1.5 seconds (10 messages * 0.15 seconds)
+    before = asyncio.get_running_loop().time()
+    await asyncio.wait_for(check_all_arrived(messages_total), timeout=2)
+    after = asyncio.get_running_loop().time()
+    assert after - before >= 1.5
+
+    # messages must be acked and not be processed again
+    await asyncio.sleep(1)
+    assert counter[0] == messages_total
+
+    # no tasks should be running once everything is processed
+    assert len(stream._ongoing_tasks) == 0
+
+    # stop all listeners
+    await stream.stop()
+
+    # don't leave any traces
+    await redis.delete("test-stream", "test-stream.listener", "test-stream.dlq")
 
 @pytest.mark.asyncio
 @pytest.mark.skipif(os.environ.get("REDIS_RUNNING") is None, reason="Redis is not running")

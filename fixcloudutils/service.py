@@ -24,11 +24,12 @@
 #
 # You should have received a copy of the GNU Affero General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
-
+import logging
 from typing import Any, TypeVar, Dict, List, Type, AsyncContextManager
 
 ServiceType = TypeVar("ServiceType", bound="Service")
 T = TypeVar("T")
+log = logging.getLogger("fixcloudutils.service")
 
 
 class Service(AsyncContextManager[Any]):
@@ -59,8 +60,8 @@ class Dependencies(Service):
         return self
 
     @property
-    def services(self) -> List[AsyncContextManager[Any]]:
-        return [v for _, v in self.lookup.items() if isinstance(v, AsyncContextManager)]
+    def services(self) -> List[(str, AsyncContextManager[Any])]:
+        return [(k,v) for k, v in self.lookup.items() if isinstance(v, AsyncContextManager)]
 
     def service(self, name: str, clazz: Type[T]) -> T:
         if isinstance(existing := self.lookup.get(name), clazz):
@@ -69,9 +70,11 @@ class Dependencies(Service):
             raise KeyError(f"Service {name} not found")
 
     async def start(self) -> None:
-        for service in self.services:
+        for name, service in self.services:
+            log.info(f"Start service {name}.")
             await service.__aenter__()
 
     async def stop(self) -> None:
-        for service in reversed(self.services):
+        for name, service in reversed(self.services):
+            log.info(f"Stop service {name}.")
             await service.__aexit__(None, None, None)

@@ -298,7 +298,13 @@ async def test_failure(redis: Redis) -> None:
 
     # a new redis listener started later will receive all messages
     async with RedisStreamListener(
-        redis, "test-stream", "t1", "l1", handle_message, timedelta(seconds=5), backoff=Backoff(0, 0, 5)
+        redis,
+        "test-stream",
+        "t1",
+        "l1",
+        handle_message,
+        timedelta(seconds=5),
+        backoff=defaultdict(lambda: Backoff(0, 0, 5)),
     ):
         async with RedisStreamPublisher(redis, "test-stream", "test") as publisher:
             await publisher.publish("test_data", unstructure(ExampleData(1, "foo", [1, 2, 3])))

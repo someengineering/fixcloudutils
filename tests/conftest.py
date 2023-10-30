@@ -25,22 +25,24 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-from typing import List
+from typing import List, AsyncIterator
 
 from arango.client import ArangoClient
 from attr import define
 from pytest import fixture
 from redis.asyncio import Redis
-from redis.backoff import ExponentialBackoff
 from redis.asyncio.retry import Retry
+from redis.backoff import ExponentialBackoff
 
 from fixcloudutils.arangodb.async_arangodb import AsyncArangoDB
 
 
 @fixture
-def redis() -> Redis:
+async def redis() -> AsyncIterator[Redis]:
     backoff = ExponentialBackoff()  # type: ignore
-    return Redis(host="localhost", port=6379, decode_responses=True, retry=Retry(backoff, 10))
+    redis = Redis(host="localhost", port=6379, decode_responses=True, retry=Retry(backoff, 10))
+    yield redis
+    await redis.close(True)
 
 
 @fixture

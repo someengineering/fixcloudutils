@@ -33,6 +33,7 @@ import re
 import sys
 import uuid
 from asyncio import Task
+from collections import defaultdict
 from contextlib import suppress
 from datetime import datetime, timedelta
 from functools import partial
@@ -45,10 +46,12 @@ from typing import (
     TypeVar,
     Dict,
     List,
+    Set,
 )
 
 from attrs import define
 from redis.asyncio import Redis
+from redis.typing import StreamIdT
 
 from fixcloudutils.asyncio import stop_running_task
 from fixcloudutils.asyncio.periodic import Periodic
@@ -72,6 +75,7 @@ class Backoff:
     base_delay: float
     maximum_delay: float
     retries: int
+    log_failed_attempts: bool = True
 
     def wait_time(self, attempt: int) -> float:
         delay: float = self.base_delay * (2**attempt + random.uniform(0, 1))
@@ -83,7 +87,8 @@ class Backoff:
         except Exception as e:
             if attempt < self.retries:
                 delay = self.wait_time(attempt)
-                log.warning(f"Got Exception in attempt {attempt}. Retry after {delay} seconds: {e}")
+                if self.log_failed_attempts:
+                    log.warning(f"Got Exception in attempt {attempt}. Retry after {delay} seconds: {e}")
                 await asyncio.sleep(delay)
                 return await self.with_backoff(fn, attempt + 1)
             else:
@@ -91,6 +96,7 @@ class Backoff:
 
 
 NoBackoff = Backoff(0, 0, 0)
+DefaultBackoff = Backoff(0.1, 10, 10)
 
 
 @define(frozen=True, slots=True)
@@ -123,7 +129,8 @@ class RedisStreamListener(Service):
         consider_failed_after: timedelta,
         batch_size: int = 1000,
         stop_on_fail: bool = False,
-        backoff: Optional[Backoff] = Backoff(0.1, 10, 10),
+        backoff: Optional[Dict[str, Backoff]] = None,
+        parallelism: Optional[int] = None,
     ) -> None:
         """
         Create a RedisStream client.
@@ -137,7 +144,9 @@ class RedisStreamListener(Service):
         :param consider_failed_after: The time after which a message is considered failed and will be retried.
         :param batch_size: The number of events to read in one batch.
         :param stop_on_fail: If True, the listener will stop if a failed event is retried too many times.
-        :param backoff: The backoff strategy to use when retrying failed events.
+        :param backoff: The backoff strategy for the defined message kind to use when retrying failed events.
+                        The DefaultBackoff is used if no value is provided.
+        :param parallelism: If provided, messages will be processed in parallel without order.
         """
         self.redis = redis
         self.stream = stream
@@ -146,7 +155,7 @@ class RedisStreamListener(Service):
         self.message_processor = message_processor
         self.batch_size = batch_size
         self.stop_on_fail = stop_on_fail
-        self.backoff = backoff or NoBackoff
+        self.backoff = defaultdict(lambda: DefaultBackoff) if backoff is None else backoff
         self.__should_run = True
         self.__listen_task: Optional[Task[Any]] = None
         # Check for messages that are not processed for a long time by any listener. Try to claim and process them.
@@ -157,6 +166,8 @@ class RedisStreamListener(Service):
             first_run=timedelta(seconds=3),
         )
         self.__readpos = ">"
+        self._ongoing_tasks: Set[Task[Any]] = set()
+        self.parallelism = parallelism
 
     async def _listen(self) -> None:
         while self.__should_run:
@@ -165,9 +176,13 @@ class RedisStreamListener(Service):
                     self.group, self.listener, {self.stream: self.__readpos}, count=self.batch_size, block=1000
                 )
                 self.__readpos = ">"
-
-                await self._handle_stream_messages(messages)
+                if self.parallelism:
+                    await self._handle_stream_messages_parallel(messages, self.parallelism)
+                else:
+                    await self._handle_stream_messages(messages)
             except Exception as e:
+                if isinstance(e, RuntimeError) and len(e.args) and e.args[0] == "no running event loop":
+                    raise e
                 log.error(f"Failed to read from stream {self.stream}: {e}", exc_info=True)
                 if self.stop_on_fail:
                     raise
@@ -185,19 +200,41 @@ class RedisStreamListener(Service):
                 # acknowledge all processed messages
                 await self.redis.xack(self.stream, self.group, *ids)
 
+    async def _handle_stream_messages_parallel(self, messages: List[Any], max_parallelism: int) -> None:
+        """
+        Handle messages in parallel in an unordered fashion. The number of parallel tasks is limited by max_parallelism.
+        """
+
+        async def handle_and_ack(msg: Any, message_id: StreamIdT) -> None:
+            await self._handle_single_message(msg)
+            await self.redis.xack(self.stream, self.group, message_id)
+
+        def task_done_callback(task: Task[Any]) -> None:
+            self._ongoing_tasks.discard(task)
+
+        for stream, stream_messages in messages:
+            log.debug(f"Handle {len(stream_messages)} messages from stream.")
+            for uid, data in stream_messages:
+                while len(self._ongoing_tasks) >= max_parallelism:  # queue is full, wait for a slot to be freed
+                    await asyncio.wait(self._ongoing_tasks, return_when=asyncio.FIRST_COMPLETED)
+                task = asyncio.create_task(handle_and_ack(data, uid), name=f"handle_message_{uid}")
+                task.add_done_callback(task_done_callback)
+                self._ongoing_tasks.add(task)
+
     async def _handle_single_message(self, message: Json) -> None:
         try:
             if "id" in message and "at" in message and "data" in message:
+                kind = message["kind"]
                 context = MessageContext(
                     id=message["id"],
-                    kind=message["kind"],
+                    kind=kind,
                     publisher=message["publisher"],
                     sent_at=parse_utc_str(message["at"]),
                     received_at=utc(),
                 )
                 data = json.loads(message["data"])
                 log.debug(f"Received message {self.listener}: message {context} data: {data}")
-                await self.backoff.with_backoff(partial(self.message_processor, data, context))
+                await self.backoff[kind].with_backoff(partial(self.message_processor, data, context))
             else:
                 log.warning(f"Invalid message format: {message}. Ignore.")
         except Exception as e:
@@ -271,6 +308,7 @@ class RedisStreamListener(Service):
         await self.__outdated_messages_task.start()
 
     async def stop(self) -> Any:
+        await asyncio.gather(*[stop_running_task(task) for task in self._ongoing_tasks])
         self.__should_run = False
         await self.__outdated_messages_task.stop()
         await stop_running_task(self.__listen_task)

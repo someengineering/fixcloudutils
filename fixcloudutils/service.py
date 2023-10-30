@@ -25,7 +25,7 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 import logging
-from typing import Any, TypeVar, Dict, List, Type, AsyncContextManager
+from typing import Any, TypeVar, Dict, List, Type, AsyncContextManager, Tuple
 
 ServiceType = TypeVar("ServiceType", bound="Service")
 T = TypeVar("T")
@@ -60,8 +60,8 @@ class Dependencies(Service):
         return self
 
     @property
-    def services(self) -> List[(str, AsyncContextManager[Any])]:
-        return [(k,v) for k, v in self.lookup.items() if isinstance(v, AsyncContextManager)]
+    def services(self) -> List[Tuple[str, AsyncContextManager[Any]]]:
+        return [(k, v) for k, v in self.lookup.items() if isinstance(v, AsyncContextManager)]
 
     def service(self, name: str, clazz: Type[T]) -> T:
         if isinstance(existing := self.lookup.get(name), clazz):

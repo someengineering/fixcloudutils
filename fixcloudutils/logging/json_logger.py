@@ -34,13 +34,13 @@ class JsonFormatter(Formatter):
         fmt_dict: Mapping[str, str],
         time_format: str = "%Y-%m-%dT%H:%M:%S",
         static_values: Optional[Dict[str, str]] = None,
-        get_logging_context: Callable[[], Dict[str, str]] = lambda: {},
+        get_logging_context: Optional[Callable[[], Dict[str, str]]] = None,
     ) -> None:
         super().__init__()
         self.fmt_dict = fmt_dict
         self.time_format = time_format
         self.static_values = static_values or {}
-        self.get_context_values = get_logging_context
+        self.get_logging_context = get_logging_context
         self.__uses_time = "asctime" in self.fmt_dict.values()
 
     def usesTime(self) -> bool:  # noqa: N802
@@ -57,8 +57,8 @@ class JsonFormatter(Formatter):
 
         message_dict = {fmt_key: prop(fmt_val) for fmt_key, fmt_val in self.fmt_dict.items()}
         message_dict.update(self.static_values)
-        if context := self.get_context_values():
-            message_dict.update(context)
+        if get_context := self.get_logging_context:
+            message_dict.update(get_context())
         if record.exc_info:
             if not record.exc_text:
                 record.exc_text = self.formatException(record.exc_info)

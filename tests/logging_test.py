@@ -22,14 +22,18 @@
 import logging
 
 import prometheus_client
+from typing import Dict
 
 from fixcloudutils.logging import JsonFormatter, PrometheusLoggingCounter
 
 
 def test_json_logging() -> None:
-    format = JsonFormatter({"level": "levelname", "message": "message"})
+    def logging_context() -> Dict[str, str]:
+        return {"foo": "bar"}
+
+    format = JsonFormatter({"level": "levelname", "message": "message"}, get_logging_context=logging_context)
     record = logging.getLogger().makeRecord("test", logging.INFO, "test", 1, "test message", (), None)
-    assert format.format(record) == '{"level": "INFO", "message": "test message"}'
+    assert format.format(record) == '{"level": "INFO", "message": "test message", "foo": "bar"}'
 
 
 def test_prometheus_counter() -> None:

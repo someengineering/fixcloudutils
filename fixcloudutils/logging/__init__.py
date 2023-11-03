@@ -39,7 +39,7 @@ def setup_logger(
     count_logs: bool = True,
     log_format: Optional[str] = None,
     json_format_dict: Optional[Dict[str, str]] = None,
-    get_logging_context: Optional[Callable[[], Dict[str, str]]] = None
+    get_logging_context: Optional[Callable[[], Dict[str, str]]] = None,
 ) -> List[StreamHandler]:  # type: ignore
     log_level = level or logging.INFO
     # override log output via env var
@@ -54,7 +54,9 @@ def setup_logger(
             "pid": "process",
             "thread": "threadName",
         }
-        formatter = JsonFormatter(format_dict, static_values={"component": component}, get_logging_context=get_logging_context)
+        formatter = JsonFormatter(
+            format_dict, static_values={"component": component}, get_logging_context=get_logging_context
+        )
         handler.setFormatter(formatter)
         basicConfig(handlers=[handler], force=force, level=log_level)
     else:

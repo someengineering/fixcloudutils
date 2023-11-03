@@ -1,6 +1,6 @@
 [project]
 name = "fixcloudutils"
-version = "1.9.0"
+version = "1.10.0"
 authors = [{ name = "Some Engineering Inc." }]
 description = "Utilities for fixcloud."
 license = { file = "LICENSE" }

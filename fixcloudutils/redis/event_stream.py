@@ -50,6 +50,7 @@ from typing import (
 )
 
 from attrs import define
+from prometheus_client import Counter
 from redis.asyncio import Redis
 from redis.typing import StreamIdT
 
@@ -62,6 +63,12 @@ log = logging.getLogger("fix.event_stream")
 T = TypeVar("T")
 Json = Dict[str, Any]
 CommitTimeRE = re.compile(r"(\d{13})-.*")
+MessageProcessingFailed = Counter(
+    "redis_messages_processing_failed", "Messages failed to process", ["stream", "listener", "kind"]
+)
+MessagesProcessed = Counter("redis_stream_messages_processed", "Messages processed", ["stream", "listener", "kind"])
+MessagesPublished = Counter("redis_stream_messages_published", "Messages published", ["stream", "publisher", "kind"])
+MessagesCleaned = Counter("redis_stream_messages_cleaned", "Stream messages published", ["stream", "publisher"])
 
 
 def time_from_id(uid: str, default: int) -> int:
@@ -235,9 +242,14 @@ class RedisStreamListener(Service):
                 data = json.loads(message["data"])
                 log.debug(f"Received message {self.listener}: message {context} data: {data}")
                 await self.backoff[kind].with_backoff(partial(self.message_processor, data, context))
+                MessagesProcessed.labels(stream=self.stream, listener=self.listener, kind=kind).inc()
             else:
                 log.warning(f"Invalid message format: {message}. Ignore.")
+                kind = message.get("kind", "invalid")
+                MessageProcessingFailed.labels(stream=self.stream, listener=self.listener, kind=kind).inc()
         except Exception as e:
+            kind = message.get("kind", "unknown")
+            MessageProcessingFailed.labels(stream=self.stream, listener=self.listener, kind=kind).inc()
             if self.stop_on_fail:
                 raise e
             else:
@@ -326,12 +338,14 @@ class RedisStreamPublisher(Service):
         redis: Redis,
         stream: str,
         publisher_name: str,
-        keep_unprocessed_messages_for: timedelta = timedelta(days=1),
+        keep_unprocessed_messages_for: timedelta = timedelta(days=7),
+        keep_processed_messages_for: timedelta = timedelta(hours=3),
     ) -> None:
         self.redis = redis
         self.stream = stream
         self.publisher_name = publisher_name
         self.keep_unprocessed_messages_for = keep_unprocessed_messages_for
+        self.keep_processed_messages_for = keep_processed_messages_for
         self.clean_process = Periodic(
             "clean_processed_messages",
             self.cleanup_processed_messages,
@@ -348,6 +362,7 @@ class RedisStreamPublisher(Service):
             "data": json.dumps(message),
         }
         await self.redis.xadd(self.stream, to_send)  # type: ignore
+        MessagesPublished.labels(stream=self.stream, publisher=self.publisher_name, kind=kind).inc()
 
     async def cleanup_processed_messages(self) -> int:
         log.debug("Cleaning up processed messages.")
@@ -363,10 +378,9 @@ class RedisStreamPublisher(Service):
             last_commit = info["last-delivered-id"]
             latest = min(latest, time_from_id(last_commit, latest))
         # in case there is an inactive reader, make sure to only keep the unprocessed message time
-        latest = max(
-            latest,
-            int((datetime.now() - self.keep_unprocessed_messages_for).timestamp() * 1000),
-        )
+        latest = max(latest, int((datetime.now() - self.keep_unprocessed_messages_for).timestamp() * 1000))
+        # in case all messages have been processed, keep them for a defined time
+        latest = min(latest, int((datetime.now() - self.keep_processed_messages_for).timestamp() * 1000))
         # iterate in batches over the stream and delete all messages that are older than the latest commit
         last = "0"
         cleaned_messages = 0
@@ -386,6 +400,7 @@ class RedisStreamPublisher(Service):
                 log.info(f"Deleting processed or old messages from stream: {len(to_delete)}")
                 cleaned_messages += len(to_delete)
                 await self.redis.xdel(self.stream, *to_delete)
+                MessagesCleaned.labels(stream=self.stream, publisher=self.publisher_name).inc(len(to_delete))
         if cleaned_messages > 0:
             log.info(f"Cleaning up processed messages done. Cleaned {cleaned_messages} messages.")
         return cleaned_messages

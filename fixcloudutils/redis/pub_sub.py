@@ -34,6 +34,7 @@ from asyncio import Task
 from datetime import datetime
 from typing import Any, Optional, Callable, Awaitable
 
+from prometheus_client import Counter
 from redis.asyncio import Redis
 from redis.asyncio.client import PubSub
 
@@ -46,6 +47,10 @@ from fixcloudutils.util import utc_str, parse_utc_str
 MessageHandler = Callable[[str, datetime, str, str, Json], Awaitable[Any]]
 log = logging.getLogger("fixcloudutils.redis.pub_sub")
 redis_wildcard = re.compile(r"(?<!\\)[*?\[]")
+
+MessageProcessingFailed = Counter("redis_pubsub_processing_failed", "Messages failed to process", ["channel"])
+MessagesProcessed = Counter("redis_pubsub_messages_processed", "Messages processed", ["channel", "kind"])
+MessagesPublished = Counter("redis_pubsub_messages_published", "Messages published", ["channel", "publisher", "kind"])
 
 
 class RedisPubSubListener(Service):
@@ -70,7 +75,9 @@ class RedisPubSubListener(Service):
                         await self.handler(
                             data["id"], parse_utc_str(data["at"]), data["publisher"], data["kind"], data["data"]
                         )
+                        MessagesProcessed.labels(channel=self.channel, kind=data["kind"]).inc()
                 except Exception as ex:
+                    MessageProcessingFailed.labels(channel=self.channel).inc()
                     log.exception(f"Error handling message {msg}: {ex}. Ignore.")
 
         ps = self.redis.pubsub()
@@ -110,3 +117,4 @@ class RedisPubSubPublisher(Service):
             "data": message,
         }
         await self.redis.publish(channel or self.channel, json.dumps(to_send))
+        MessagesPublished.labels(channel=self.channel, publisher=self.publisher_name, kind=kind).inc()

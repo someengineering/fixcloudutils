@@ -81,7 +81,7 @@ async def test_stream(redis: Redis) -> None:
         await s.start()
 
     # publish 10 messages
-    publisher = RedisStreamPublisher(redis, "test-stream", "test")
+    publisher = RedisStreamPublisher(redis, "test-stream", "test", keep_processed_messages_for=timedelta(seconds=0))
     for i in range(10):
         await publisher.publish("test_data", unstructure(ExampleData(i, "foo", [1, 2, 3])))
 

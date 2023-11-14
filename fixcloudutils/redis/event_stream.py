@@ -64,9 +64,11 @@ T = TypeVar("T")
 Json = Dict[str, Any]
 CommitTimeRE = re.compile(r"(\d{13})-.*")
 MessageProcessingFailed = Counter(
-    "redis_messages_processing_failed", "Messages failed to process", ["stream", "listener", "kind"]
+    "redis_messages_processing_failed", "Messages failed to process", ["stream", "listener", "group", "kind"]
 )
-MessagesProcessed = Counter("redis_stream_messages_processed", "Messages processed", ["stream", "listener", "kind"])
+MessagesProcessed = Counter(
+    "redis_stream_messages_processed", "Messages processed", ["stream", "listener", "group", "kind"]
+)
 MessagesPublished = Counter("redis_stream_messages_published", "Messages published", ["stream", "publisher", "kind"])
 MessagesCleaned = Counter("redis_stream_messages_cleaned", "Stream messages published", ["stream", "publisher"])
 
@@ -242,14 +244,18 @@ class RedisStreamListener(Service):
                 data = json.loads(message["data"])
                 log.debug(f"Received message {self.listener}: message {context} data: {data}")
                 await self.backoff[kind].with_backoff(partial(self.message_processor, data, context))
-                MessagesProcessed.labels(stream=self.stream, listener=self.listener, kind=kind).inc()
+                MessagesProcessed.labels(stream=self.stream, listener=self.listener, group=self.group, kind=kind).inc()
             else:
                 log.warning(f"Invalid message format: {message}. Ignore.")
                 kind = message.get("kind", "invalid")
-                MessageProcessingFailed.labels(stream=self.stream, listener=self.listener, kind=kind).inc()
+                MessageProcessingFailed.labels(
+                    stream=self.stream, listener=self.listener, group=self.group, kind=kind
+                ).inc()
         except Exception as e:
             kind = message.get("kind", "unknown")
-            MessageProcessingFailed.labels(stream=self.stream, listener=self.listener, kind=kind).inc()
+            MessageProcessingFailed.labels(
+                stream=self.stream, listener=self.listener, group=self.group, kind=kind
+            ).inc()
             if self.stop_on_fail:
                 raise e
             else:

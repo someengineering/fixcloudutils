@@ -405,8 +405,8 @@ class RedisStreamPublisher(Service):
             if to_delete:
                 log.info(f"Deleting processed or old messages from stream: {len(to_delete)}")
                 cleaned_messages += len(to_delete)
-                await self.redis.xdel(self.stream, *to_delete)
-                MessagesCleaned.labels(stream=self.stream, publisher=self.publisher_name).inc(len(to_delete))
+                removed = await self.redis.xdel(self.stream, *to_delete)
+                MessagesCleaned.labels(stream=self.stream, publisher=self.publisher_name).inc(removed)
         if cleaned_messages > 0:
             log.info(f"Cleaning up processed messages done. Cleaned {cleaned_messages} messages.")
         return cleaned_messages

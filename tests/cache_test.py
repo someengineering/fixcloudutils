@@ -32,10 +32,10 @@ async def test_cache(redis: Redis) -> None:
 
     async with AsyncExitStack() as stack:
         cache1 = await stack.enter_async_context(
-            RedisCache(redis, "test", "test1", ttl_redis=t2, ttl_memory=t1, cleaner_task_frequency=t0)
+            RedisCache(redis, "test", ttl_redis=t2, ttl_memory=t1, cleaner_task_frequency=t0)
         )
         cache2 = await stack.enter_async_context(
-            RedisCache(redis, "test", "test2", ttl_redis=t2, ttl_memory=t1, cleaner_task_frequency=t0)
+            RedisCache(redis, "test", ttl_redis=t2, ttl_memory=t1, cleaner_task_frequency=t0)
         )
         call_count = 0
 

@@ -27,7 +27,7 @@ from fixcloudutils.asyncio.periodic import Periodic
 from fixcloudutils.redis.pub_sub import RedisPubSubListener, RedisPubSubPublisher
 from fixcloudutils.service import Service
 from fixcloudutils.types import Json
-from fixcloudutils.util import utc
+from fixcloudutils.util import utc, uuid_str
 
 log = logging.getLogger("fixcloudutils.redis.cache")
 RedisKey = NewType("RedisKey", str)
@@ -64,7 +64,6 @@ class RedisCache(Service):
         self,
         redis: Redis,
         key: str,
-        instance_id: str,
         *,
         ttl_memory: Optional[timedelta] = None,
         ttl_redis: Optional[timedelta] = None,
@@ -79,7 +78,7 @@ class RedisCache(Service):
         self.started = False
         self.process_queue_task: Optional[Task[None]] = None
         self.event_listener = RedisPubSubListener(redis, f"cache_evict:{key}", self._handle_evict_message)
-        self.event_publisher = RedisPubSubPublisher(redis, f"cache_evict:{key}", instance_id)
+        self.event_publisher = RedisPubSubPublisher(redis, f"cache_evict:{key}", str(uuid_str()))
         self.local_cache: dict[Any, RedisCacheEntry] = {}
         self.cached_functions: dict[str, Any] = {}
         self.cleaner_task = Periodic("wipe_local_cache", self._wipe_outdated_from_local_cache, cleaner_task_frequency)

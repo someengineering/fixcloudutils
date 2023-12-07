@@ -58,7 +58,7 @@ clean-env: ## remove environment
 lint: ## static code analysis
 	black --line-length 120 --check fixcloudutils tests
 	flake8 fixcloudutils
-	mypy --python-version 3.9 --strict --install-types --non-interactive fixcloudutils tests
+	mypy --python-version 3.11 --strict --install-types --non-interactive fixcloudutils tests
 
 test: ## run tests quickly with the default Python
 	pytest

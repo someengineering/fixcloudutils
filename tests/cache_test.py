@@ -47,41 +47,45 @@ async def test_cache(redis: Redis) -> None:
         async def local_cache_is_empty(cache: RedisCache) -> bool:
             return len(cache.local_cache) == 0
 
-        key = cache1._redis_key(complex_function.__name__, None, 1, 2)
-        assert await cache1.call(complex_function)(1, 2) == 3
+        c1 = "customer_1"
+        redis_key = cache1._redis_key(c1)
+        fn_key = cache1._fn_key(complex_function.__name__, 1, 2)
+        assert await cache1.call(complex_function, c1)(1, 2) == 3
         assert call_count == 1
         assert len(cache1.local_cache) == 1
         # should come from internal memory cache
-        assert await cache1.call(complex_function)(1, 2) == 3
+        assert await cache1.call(complex_function, c1)(1, 2) == 3
         assert call_count == 1
-        await eventually(redis.exists, key, timeout=2)
+        await eventually(redis.hexists, redis_key, fn_key, timeout=2)  # type: ignore
         # should come from redis cache
         assert len(cache2.local_cache) == 0
-        assert await cache2.call(complex_function)(1, 2) == 3
+        assert await cache2.call(complex_function, c1)(1, 2) == 3
         assert call_count == 1
         assert len(cache2.local_cache) == 1
         # after ttl expires, the local cache is empty
         await eventually(local_cache_is_empty, cache1, timeout=1)
         await eventually(local_cache_is_empty, cache2, timeout=1)
         # after redis ttl the cache is evicted
-        await eventually(redis.exists, key, fn=lambda x: not x, timeout=2)
+        await eventually(redis.hexists, redis_key, fn_key, fn=lambda x: not x, timeout=2)  # type: ignore
 
         # calling this method again should trigger a new call and a new cache entry
         # we use a loner redis ttl to test the eviction of the redis cache
         for a in range(100):
-            assert await cache1.call(complex_function, ttl_redis=t3)(a, 2) == a + 2
+            assert await cache1.call(complex_function, c1, ttl_redis=t3)(a, 2) == a + 2
         assert call_count == 101
         assert len(cache1.local_cache) == 100
+        await eventually(redis.hlen, redis_key, fn=lambda x: x == 100, timeout=2)  # type: ignore
+
         for a in range(100):
-            assert await cache1.call(complex_function)(a, 2) == a + 2
-            assert await cache2.call(complex_function)(a, 2) == a + 2
+            assert await cache1.call(complex_function, c1)(a, 2) == a + 2
+            assert await cache2.call(complex_function, c1)(a, 2) == a + 2
         assert len(cache1.local_cache) == 100
         assert len(cache2.local_cache) == 100
         # no more calls are done
         assert call_count == 101
 
         # evict all entries should evict all messages in all caches
-        for a in range(100):
-            await cache1.evict_with(complex_function)(a, 2)
+        await cache1.evict(c1)
         await eventually(local_cache_is_empty, cache1, timeout=1)
         await eventually(local_cache_is_empty, cache2, timeout=1)
+        await eventually(redis.exists, redis_key, fn=lambda x: not x, timeout=2)

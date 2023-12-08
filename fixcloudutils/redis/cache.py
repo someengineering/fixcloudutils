@@ -40,6 +40,7 @@ CacheHit = Counter("redis_cache", "Redis Cache", ["key", "stage"])
 @frozen
 class RedisCacheSet:
     key: RedisKey
+    fn_name: str
     fn_key: str
     value: Any
     ttl: timedelta
@@ -149,7 +150,7 @@ class RedisCache(Service):
             result = await fn(*args, **kwargs)  # type: ignore
             CacheHit.labels(self.key, "call").inc()
             self._add_to_local_cache(local_cache_key, redis_key, fn_key, result, ttl_memory or self.ttl_memory)
-            await self.queue.put(RedisCacheSet(redis_key, fn_key, result, ttl_redis or self.ttl_redis))
+            await self.queue.put(RedisCacheSet(redis_key, fns, fn_key, result, ttl_redis or self.ttl_redis))
             return result
 
         return handle_call  # type: ignore
@@ -162,7 +163,7 @@ class RedisCache(Service):
             try:
                 entry = await self.queue.get()
                 if isinstance(entry, RedisCacheSet):
-                    log.info(f"{self.key}: Store cached value in redis as {entry.key}:{entry.fn_key}")
+                    log.info(f"{self.key}:{entry.fn_name} Store cached value in redis as {entry.key}:{entry.fn_key}")
                     value = base64.b64encode(pickle.dumps(entry.value)).decode("utf-8")
                     await self.redis.hset(name=entry.key, key=entry.fn_key, value=value)  # type: ignore
                     await self.redis.expire(name=entry.key, time=entry.ttl)

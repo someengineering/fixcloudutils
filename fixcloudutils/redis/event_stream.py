@@ -228,6 +228,8 @@ class RedisStreamListener(Service):
         for stream, stream_messages in messages:
             log.debug(f"Handle {len(stream_messages)} messages from stream.")
             for uid, data in stream_messages:
+                while len(self._ongoing_tasks) >= max_parallelism:  # queue is full, wait for a slot to be freed
+                    await asyncio.wait(self._ongoing_tasks, return_when=asyncio.FIRST_COMPLETED)
                 task = asyncio.create_task(handle_and_ack(data, uid), name=f"handle_message_{uid}")
                 task.add_done_callback(task_done_callback)
                 self._ongoing_tasks.add(task)

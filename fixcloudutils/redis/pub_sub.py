@@ -70,7 +70,7 @@ class RedisPubSubListener(Service):
                         data = json.loads(msg["data"])
                         for prop in ["id", "at", "publisher", "kind", "data"]:
                             if prop not in data:
-                                log.error(f"Invalid message received: {msg}. Missing property {prop}")
+                                log.error(f"Invalid message received: {msg}. Missing property {prop}", exc_info=True)
                                 continue
                         await self.handler(
                             data["id"], parse_utc_str(data["at"]), data["publisher"], data["kind"], data["data"]

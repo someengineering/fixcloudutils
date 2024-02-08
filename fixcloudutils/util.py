@@ -52,7 +52,7 @@ def identity(o: T) -> T:
 
 def value_in_path_get(element: JsonElement, path_or_name: Union[List[str], str], if_none: T) -> T:
     result = value_in_path(element, path_or_name)
-    return result if result is not None and isinstance(result, type(if_none)) else if_none  # type: ignore
+    return result if result is not None and isinstance(result, type(if_none)) else if_none
 
 
 def value_in_path(element: JsonElement, path_or_name: Union[List[str], str]) -> Optional[Any]:

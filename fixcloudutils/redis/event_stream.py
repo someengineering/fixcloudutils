@@ -97,7 +97,7 @@ class Backoff:
             if attempt < self.retries:
                 delay = self.wait_time(attempt)
                 if self.log_failed_attempts:
-                    log.warning(f"Got Exception in attempt {attempt}. Retry after {delay} seconds: {e}")
+                    log.warning(f"Got Exception in attempt {attempt}. Retry after {delay} seconds: {e}", exc_info=True)
                 await asyncio.sleep(delay)
                 return await self.with_backoff(fn, attempt + 1)
             else:
@@ -177,6 +177,7 @@ class RedisStreamListener(Service):
         self.__readpos = ">"
         self._ongoing_tasks: Set[Task[Any]] = set()
         self.parallelism = parallelism
+        self.semaphore = asyncio.Semaphore(parallelism or 1)
 
     async def _listen(self) -> None:
         while self.__should_run:
@@ -195,6 +196,8 @@ class RedisStreamListener(Service):
                 log.error(f"Failed to read from stream {self.stream}: {e}", exc_info=True)
                 if self.stop_on_fail:
                     raise
+                # do not retry immediately
+                await asyncio.sleep(1)
 
     async def _handle_stream_messages(self, messages: List[Any]) -> None:
         ids = []
@@ -215,8 +218,9 @@ class RedisStreamListener(Service):
         """
 
         async def handle_and_ack(msg: Any, message_id: StreamIdT) -> None:
-            await self._handle_single_message(msg)
-            await self.redis.xack(self.stream, self.group, message_id)
+            async with self.semaphore:
+                await self._handle_single_message(msg)
+                await self.redis.xack(self.stream, self.group, message_id)
 
         def task_done_callback(task: Task[Any]) -> None:
             self._ongoing_tasks.discard(task)
@@ -224,8 +228,6 @@ class RedisStreamListener(Service):
         for stream, stream_messages in messages:
             log.debug(f"Handle {len(stream_messages)} messages from stream.")
             for uid, data in stream_messages:
-                while len(self._ongoing_tasks) >= max_parallelism:  # queue is full, wait for a slot to be freed
-                    await asyncio.wait(self._ongoing_tasks, return_when=asyncio.FIRST_COMPLETED)
                 task = asyncio.create_task(handle_and_ack(data, uid), name=f"handle_message_{uid}")
                 task.add_done_callback(task_done_callback)
                 self._ongoing_tasks.add(task)
@@ -259,7 +261,10 @@ class RedisStreamListener(Service):
             if self.stop_on_fail:
                 raise e
             else:
-                log.error(f"Failed to process message {self.listener}: {message}. Error: {e}")
+                log.error(
+                    f"Failed to process message {self.stream}:{self.group}:{self.listener}: {message}. Error: {e}",
+                    exc_info=True,
+                )
                 # write the failed message to the dlq
                 await self.redis.xadd(
                     f"{self.stream}.dlq",

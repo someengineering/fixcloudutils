@@ -92,7 +92,7 @@ class RedisPubSubListener(Service):
     async def stop(self) -> None:
         await stop_running_task(self.reader)
         if self.pubsub:
-            await self.pubsub.close()
+            await self.pubsub.aclose()
             self.pubsub = None
 
 

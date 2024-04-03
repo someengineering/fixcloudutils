@@ -31,6 +31,7 @@ import logging
 import random
 import re
 import sys
+import traceback
 import uuid
 from asyncio import Task
 from collections import defaultdict
@@ -186,13 +187,13 @@ class RedisStreamListener(Service):
                     self.group, self.listener, {self.stream: self.__readpos}, count=self.batch_size, block=1000
                 )
                 self.__readpos = ">"
+                if not messages:
+                    continue
                 if self.parallelism:
                     await self._handle_stream_messages_parallel(messages, self.parallelism)
                 else:
                     await self._handle_stream_messages(messages)
             except Exception as e:
-                if isinstance(e, RuntimeError) and len(e.args) and e.args[0] == "no running event loop":
-                    raise e
                 log.error(f"Failed to read from stream {self.stream}: {e}", exc_info=True)
                 if self.stop_on_fail:
                     raise
@@ -273,6 +274,7 @@ class RedisStreamListener(Service):
                     {
                         "listener": self.listener,
                         "error": str(e),
+                        "stack": traceback.format_exc(),
                         "message": json.dumps(message),
                     },
                 )
@@ -302,19 +304,22 @@ class RedisStreamListener(Service):
                 count=self.batch_size,
                 idle=min_idle,
             )
-            if len(pending_messages) == 0:
-                break
-
             message_ids = [
                 pm["message_id"] for pm in pending_messages if (pm["times_delivered"] < 10 or ignore_delivery_count)
             ]
+            if not message_ids:
+                break
 
-            log.debug(f"Found {len(pending_messages)} pending messages and {len(message_ids)} for this listener.")
+            log.info(f"Found {len(pending_messages)} pending messages and {len(message_ids)} for this listener.")
 
             # it is possible that claiming the message fails
-            with suppress(Exception):
+            try:
                 messages = await self.redis.xclaim(self.stream, self.group, self.listener, min_idle or 0, message_ids)
-                await self._handle_stream_messages([(self.stream, messages)])
+            except Exception as e:
+                log.warning(f"Failed to claim pending messages: {e}. Wait for next cycle.", exc_info=True)
+                break
+            # process claimed messages
+            await self._handle_stream_messages([(self.stream, messages)])
 
     async def start(self) -> Any:
         self.__should_run = True

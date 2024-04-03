@@ -17,7 +17,8 @@ import logging
 import pickle
 from asyncio import Task, Queue, CancelledError, create_task
 from datetime import datetime, timedelta
-from typing import Any, Optional, TypeVar, Callable, ParamSpec, NewType, Hashable
+from functools import wraps
+from typing import Any, Optional, TypeVar, Callable, ParamSpec, NewType, Hashable, Awaitable
 
 from attr import frozen
 from prometheus_client import Counter
@@ -112,6 +113,28 @@ class RedisCache(Service):
     async def evict(self, key: str) -> None:
         log.debug(f"{self.key}: Evict {key}")
         await self.queue.put(RedisCacheEvict(self._redis_key(key)))
+
+    def cache(
+        self, key: str, *, ttl_memory: Optional[timedelta] = None, ttl_redis: Optional[timedelta] = None
+    ) -> Callable[[Callable[P, T]], Callable[P, Awaitable[T]]]:
+        """
+        Use it as a decorator.
+        ```
+        rc = RedisCache(...)
+        @rc.cache("my_key")
+        def my_function():
+            ...
+        ```
+        """
+
+        def decorator(fn: Callable[P, T]) -> Callable[P, Awaitable[T]]:
+            @wraps(fn)
+            async def wrapper(*args: P.args, **kwargs: P.kwargs) -> T:
+                return await self.call(fn, key, ttl_memory=ttl_memory, ttl_redis=ttl_redis)(*args, **kwargs)  # type: ignore # noqa
+
+            return wrapper
+
+        return decorator
 
     def call(
         self,

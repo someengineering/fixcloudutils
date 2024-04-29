@@ -29,6 +29,8 @@ from datetime import timedelta
 from typing import List, AsyncIterator, Awaitable, TypeVar, Optional, Callable, Any, ParamSpec
 
 from arango.client import ArangoClient
+from arq import ArqRedis
+from arq.connections import RedisSettings, create_pool
 from attr import define
 from pytest import fixture
 from redis.asyncio import Redis
@@ -68,6 +70,19 @@ async def eventually(
 async def redis() -> AsyncIterator[Redis]:
     backoff = ExponentialBackoff()  # type: ignore
     redis = Redis(host="localhost", port=6379, db=0, decode_responses=True, retry=Retry(backoff, 10))
+    await redis.flushdb()  # wipe redis
+    yield redis
+    await redis.aclose(True)
+
+
+@fixture
+async def arq_settings() -> RedisSettings:
+    return RedisSettings(host="localhost", port=6379, database=5)
+
+
+@fixture
+async def arq(arq_settings: RedisSettings) -> AsyncIterator[ArqRedis]:
+    redis = await create_pool(arq_settings)
     await redis.flushdb()  # wipe redis
     yield redis
     await redis.aclose(True)

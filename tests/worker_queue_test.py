@@ -13,6 +13,7 @@
 #  along with this program.  If not, see <http://www.gnu.org/licenses/>.
 from typing import Dict
 
+import pytest
 from arq.connections import RedisSettings
 from arq.worker import func
 
@@ -23,6 +24,8 @@ async def example(ctx: Dict[str, str], num: int, txt: str) -> str:
     return f"test {num} {txt}"
 
 
+@pytest.mark.asyncio
+@pytest.mark.skipif(os.environ.get("REDIS_RUNNING") is None, reason="Redis is not running")
 async def test_worker(arq_settings: RedisSettings) -> None:
     async with WorkDispatcher(arq_settings, "test_queue") as dispatcher:
         async with WorkerInstance(

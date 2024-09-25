@@ -64,7 +64,8 @@ class RedisPubSubListener(Service):
     async def start(self) -> None:
         async def read_messages(pubsub: PubSub) -> None:
             while True:
-                msg = await pubsub.get_message(ignore_subscribe_messages=True)
+                # timeout: waiting time for a message to be received in seconds
+                msg = await pubsub.get_message(ignore_subscribe_messages=True, timeout=30)
                 try:
                     if msg is not None:
                         data = json.loads(msg["data"])

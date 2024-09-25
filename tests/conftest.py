@@ -68,7 +68,7 @@ async def eventually(
 
 @fixture
 async def redis() -> AsyncIterator[Redis]:
-    backoff = ExponentialBackoff()  # type: ignore
+    backoff = ExponentialBackoff()
     redis = Redis(host="localhost", port=6379, db=0, decode_responses=True, retry=Retry(backoff, 10))
     await redis.flushdb()  # wipe redis
     yield redis
